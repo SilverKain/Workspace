@@ -176,6 +176,10 @@ button {
     background: var(--surface);
     box-shadow: var(--shadow-sm);
     position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
 }
 
 .file-item:hover {
@@ -194,16 +198,34 @@ button {
     opacity: 0.5;
 }
 
+.file-info {
+    flex: 1;
+    min-width: 0;
+}
+
 .file-name {
     font-size: 14px;
     font-weight: 500;
     color: var(--text-primary);
     margin-bottom: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .file-stats {
     font-size: 12px;
     color: var(--text-secondary);
+}
+
+.btn-delete {
+    flex-shrink: 0;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.file-item:hover .btn-delete {
+    opacity: 1;
 }
 
 /* Проекты */

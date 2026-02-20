@@ -208,15 +208,32 @@ function renderFileList() {
             fileItem.classList.add('active');
         }
         
-        const progressText = file.readProgress !== undefined ? ` - ${file.readProgress}%` : '';
-        
         fileItem.innerHTML = `
-            <div class="file-name">${fileName}${progressText}</div>
-            <div class="file-stats">Прочитано: ${file.readProgress || 0}%</div>
+            <div class="file-info">
+                <div class="file-name">${fileName}</div>
+                <div class="file-stats">Прочитано: ${file.readProgress || 0}%</div>
+            </div>
+            <button class="btn-icon btn-delete" data-file-name="${fileName}" title="Удалить файл">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                    <path d="M3 4H13M5 4V3C5 2.44772 5.44772 2 6 2H10C10.5523 2 11 2.44772 11 3V4M6 7V11M10 7V11M4 4H12V13C12 13.5523 11.5523 14 11 14H5C4.44772 14 4 13.5523 4 13V4Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </button>
         `;
         
         // Клик для открытия файла
-        fileItem.addEventListener('click', () => displayFile(fileName));
+        fileItem.addEventListener('click', (e) => {
+            // Не открывать файл при клике на кнопку удаления
+            if (!e.target.closest('.btn-delete')) {
+                displayFile(fileName);
+            }
+        });
+        
+        // Обработчик удаления файла
+        const deleteBtn = fileItem.querySelector('.btn-delete');
+        deleteBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            deleteFile(fileName);
+        });
         
         // Drag and Drop события
         fileItem.addEventListener('dragstart', handleFileDragStart);
@@ -331,16 +348,9 @@ function renderCalendarDays() {
         if (hasActivity) classNames += ' has-activity';
         if (isSelected) classNames += ' selected';
         
-        const activityCount = hasActivity 
-            ? Object.values(AppState.statistics[dateString]).reduce((sum, count) => sum + count, 0)
-            : 0;
-        
-        const countHTML = hasActivity ? `<div class="calendar-day-count">${activityCount}</div>` : '';
-        
         daysHTML += `
             <div class="${classNames}" data-date="${dateString}">
                 <div class="calendar-day-number">${day}</div>
-                ${countHTML}
             </div>
         `;
     }
@@ -629,6 +639,39 @@ function removeFileFromProject(projectId, fileName) {
     project.files = project.files.filter(f => f !== fileName);
     saveToLocalStorage();
     renderProjectList();
+}
+
+// Удалить файл из источников
+function deleteFile(fileName) {
+    if (!confirm(`Удалить файл "${fileName}"? Это действие нельзя отменить.`)) return;
+    
+    // Удалить файл из AppState.files
+    delete AppState.files[fileName];
+    
+    // Удалить файл из всех проектов
+    Object.values(AppState.projects).forEach(project => {
+        project.files = project.files.filter(f => f !== fileName);
+    });
+    
+    // Если удаляемый файл сейчас открыт, закрыть его
+    if (AppState.currentFile === fileName) {
+        AppState.currentFile = null;
+        AppState.lastFileView = null;
+        const contentArea = document.getElementById('contentArea');
+        contentArea.innerHTML = `
+            <div class="welcome-screen">
+                <h1>Добро пожаловать!</h1>
+                <p>Загрузите Markdown-файлы, чтобы начать работу.</p>
+                <p>Или введите URL выше для просмотра веб-страницы.</p>
+            </div>
+        `;
+    }
+    
+    saveToLocalStorage();
+    renderFileList();
+    renderProjectList();
+    renderCalendar();
+    renderStats();
 }
 
 // Обработчики Drag and Drop для проектов
