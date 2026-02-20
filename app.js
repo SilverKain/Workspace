@@ -630,7 +630,7 @@ function handleAddProject() {
     AppState.projects[projectId] = {
         id: projectId,
         name: projectName.trim(),
-        files: [],
+        structure: [], // Древовидная структура вместо простого массива files
         expanded: true,
         description: ''
     };
@@ -662,28 +662,34 @@ function createProjectElement(project) {
     projectDiv.className = 'project-item';
     projectDiv.dataset.projectId = project.id;
     
-    const fileCount = project.files.length;
-    const filesHTML = project.files.map(fileName => {
-        const isActive = (fileName === AppState.currentFile && !AppState.isShowingUrl) ? 'active' : '';
-        const progress = AppState.files[fileName]?.readProgress || 0;
-        const displayName = `${fileName} - ${progress}%`;
-        return `
-        <div class="project-file ${isActive}" data-file-name="${fileName}">
-            <span class="project-file-name">${displayName}</span>
-            <button class="btn-icon" onclick="event.stopPropagation(); removeFileFromProject('${project.id}', '${fileName}')" title="Удалить из проекта">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                    <path d="M4 4L12 12M12 4L4 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                </svg>
-            </button>
-        </div>
-    `;
-    }).join('');
+    // Мигрировать старую структуру если нужно
+    if (project.files && !project.structure) {
+        project.structure = project.files.map(fileName => ({
+            type: 'file',
+            name: fileName
+        }));
+        delete project.files;
+        saveToLocalStorage();
+    }
+    
+    // Обеспечить наличие structure
+    if (!project.structure) {
+        project.structure = [];
+    }
+    
+    const fileCount = countFilesInStructure(project.structure);
+    const structureHTML = renderProjectStructure(project.structure, project.id, []);
     
     projectDiv.innerHTML = `
         <div class="project-header" onclick="toggleProject('${project.id}')">
             <span class="project-toggle ${project.expanded ? 'expanded' : ''}">▶</span>
             <div class="project-title">${project.name}</div>
             <div class="project-actions">
+                <button class="btn-icon" onclick="event.stopPropagation(); addFolderToProject('${project.id}', [])" title="Добавить папку">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                        <path d="M2 4C2 3.44772 2.44772 3 3 3H6L7 5H13C13.5523 5 14 5.44772 14 6V12C14 12.5523 13.5523 13 13 13H3C2.44772 13 2 12.5523 2 12V4ZM8 7V11M6 9H10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </button>
                 <button class="btn-icon" onclick="event.stopPropagation(); renameProject('${project.id}')" title="Переименовать">
                     <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                         <path d="M3 13H13M9 3L13 7L7 13H3V9L9 3Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
@@ -697,32 +703,118 @@ function createProjectElement(project) {
             </div>
         </div>
         <div class="project-files ${project.expanded ? 'expanded' : ''}">
-            ${filesHTML}
-            <div class="project-drop-zone" data-project-id="${project.id}">
+            ${structureHTML}
+            <div class="project-drop-zone" data-project-id="${project.id}" data-path="[]">
                 Перетащите файлы сюда (${fileCount} файлов)
             </div>
         </div>
     `;
     
-    // Добавить обработчики для drop zone
-    const dropZone = projectDiv.querySelector('.project-drop-zone');
-    dropZone.addEventListener('dragover', handleProjectDragOver);
-    dropZone.addEventListener('dragleave', handleProjectDragLeave);
-    dropZone.addEventListener('drop', handleProjectDrop);
+    // Добавить обработчики для всех drop zone
+    const dropZones = projectDiv.querySelectorAll('.project-drop-zone');
+    dropZones.forEach(dropZone => {
+        dropZone.addEventListener('dragover', handleProjectDragOver);
+        dropZone.addEventListener('dragleave', handleProjectDragLeave);
+        dropZone.addEventListener('drop', handleProjectDrop);
+    });
     
     // Добавить обработчики клика на файлы в проекте
     const projectFiles = projectDiv.querySelectorAll('.project-file');
     projectFiles.forEach(fileEl => {
         fileEl.addEventListener('click', (e) => {
-            // Проверить что клик не на кнопке удаления
             if (!e.target.closest('.btn-icon')) {
                 const fileName = fileEl.dataset.fileName;
                 displayFile(fileName);
             }
         });
+        
+        // Добавить drag для файлов внутри проекта
+        fileEl.draggable = true;
+        fileEl.addEventListener('dragstart', handleProjectFileDragStart);
+        fileEl.addEventListener('dragend', handleProjectFileDragEnd);
     });
     
     return projectDiv;
+}
+
+// Подсчитать количество файлов в структуре
+function countFilesInStructure(structure) {
+    let count = 0;
+    structure.forEach(item => {
+        if (item.type === 'file') {
+            count++;
+        } else if (item.type === 'folder' && item.children) {
+            count += countFilesInStructure(item.children);
+        }
+    });
+    return count;
+}
+
+// Рендерить древовидную структуру проекта
+function renderProjectStructure(structure, projectId, path) {
+    let html = '';
+    
+    structure.forEach((item, index) => {
+        const currentPath = [...path, index];
+        const pathStr = JSON.stringify(currentPath);
+        
+        if (item.type === 'folder') {
+            const isExpanded = item.expanded !== false;
+            const childrenHTML = isExpanded ? renderProjectStructure(item.children || [], projectId, currentPath) : '';
+            
+            html += `
+                <div class="project-folder" data-path="${pathStr}">
+                    <div class="folder-header" onclick="toggleProjectFolder('${projectId}', ${pathStr})">
+                        <span class="folder-toggle ${isExpanded ? 'expanded' : ''}">▶</span>
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="margin-right: 4px;">
+                            <path d="M2 4C2 3.44772 2.44772 3 3 3H6L7 5H13C13.5523 5 14 5.44772 14 6V12C14 12.5523 13.5523 13 13 13H3C2.44772 13 2 12.5523 2 12V4Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                        <span class="folder-name">${item.name}</span>
+                        <div class="folder-actions">
+                            <button class="btn-icon" onclick="event.stopPropagation(); addFolderToProject('${projectId}', ${pathStr})" title="Добавить подпапку">
+                                <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                                    <path d="M8 3V13M3 8H13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                </svg>
+                            </button>
+                            <button class="btn-icon" onclick="event.stopPropagation(); renameFolderInProject('${projectId}', ${pathStr})" title="Переименовать">
+                                <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                                    <path d="M3 13H13M9 3L13 7L7 13H3V9L9 3Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                            </button>
+                            <button class="btn-icon" onclick="event.stopPropagation(); deleteFolderFromProject('${projectId}', ${pathStr})" title="Удалить папку">
+                                <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                                    <path d="M4 4L12 12M12 4L4 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="folder-content ${isExpanded ? 'expanded' : ''}">
+                        ${childrenHTML}
+                        <div class="project-drop-zone folder-drop-zone" data-project-id="${projectId}" data-path="${pathStr}">
+                            Перетащите сюда
+                        </div>
+                    </div>
+                </div>
+            `;
+        } else if (item.type === 'file') {
+            const isActive = (item.name === AppState.currentFile && !AppState.isShowingUrl) ? 'active' : '';
+            const progress = AppState.files[item.name]?.readProgress || 0;
+            const displayName = `${item.name} - ${progress}%`;
+            
+            html += `
+                <div class="project-file ${isActive}" data-file-name="${item.name}" data-path="${pathStr}">
+                    <span class="project-file-name">${displayName}</span>
+                    <button class="btn-icon" onclick="event.stopPropagation(); removeFileFromProjectPath('${projectId}', ${pathStr})" title="Удалить из проекта">
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                            <path d="M4 4L12 12M12 4L4 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                        </svg>
+                    </button>
+                </div>
+            `;
+        }
+    });
+    
+    return html;
 }
 
 // Переключить развернутость проекта
@@ -753,8 +845,8 @@ function deleteProject(projectId) {
     if (!project) return;
     
     if (confirm('Удалить проект? Файлы вернутся в источники, если их там нет.')) {
-        // Получить файлы удаляемого проекта
-        const projectFiles = [...project.files];
+        // Получить все файлы удаляемого проекта
+        const projectFiles = getAllFilesFromStructure(project.structure || []);
         
         // Удалить проект
         delete AppState.projects[projectId];
@@ -762,7 +854,7 @@ function deleteProject(projectId) {
         // Проверить каждый файл из удаленного проекта
         projectFiles.forEach(fileName => {
             // Проверить, остался ли файл в других проектах
-            const isInAnyProject = Object.values(AppState.projects).some(p => p.files.includes(fileName));
+            const isInAnyProject = isFileInAnyProject(fileName);
             
             // Если файл не в других проектах и был скрыт из источников, вернуть его
             if (!isInAnyProject && AppState.files[fileName]?.hiddenFromSources) {
@@ -776,24 +868,17 @@ function deleteProject(projectId) {
     }
 }
 
-// Удалить файл из проекта
-function removeFileFromProject(projectId, fileName) {
-    const project = AppState.projects[projectId];
-    if (!project) return;
-    
-    project.files = project.files.filter(f => f !== fileName);
-    
-    // Проверить, остался ли файл хотя бы в одном проекте
-    const isInAnyProject = Object.values(AppState.projects).some(p => p.files.includes(fileName));
-    
-    // Если файл не в проектах и был скрыт из источников, вернуть его в источники
-    if (!isInAnyProject && AppState.files[fileName]?.hiddenFromSources) {
-        AppState.files[fileName].hiddenFromSources = false;
-    }
-    
-    saveToLocalStorage();
-    renderProjectList();
-    renderFileList();
+// Получить все файлы из структуры
+function getAllFilesFromStructure(structure) {
+    const files = [];
+    structure.forEach(item => {
+        if (item.type === 'file') {
+            files.push(item.name);
+        } else if (item.type === 'folder' && item.children) {
+            files.push(...getAllFilesFromStructure(item.children));
+        }
+    });
+    return files;
 }
 
 // Удалить файл из источников (скрыть, но оставить в проектах)
@@ -824,27 +909,83 @@ function handleProjectDrop(e) {
     e.preventDefault();
     e.currentTarget.classList.remove('drag-over');
     
-    const fileName = e.dataTransfer.getData('text/plain');
     const projectId = e.currentTarget.dataset.projectId;
+    const targetPath = JSON.parse(e.currentTarget.dataset.path || '[]');
     
-    if (!fileName || !projectId || !AppState.projects[projectId]) return;
+    if (!projectId || !AppState.projects[projectId]) return;
     
     const project = AppState.projects[projectId];
     
-    // Проверить, что файл существует
-    if (!AppState.files[fileName]) {
-        alert('Файл не найден');
-        return;
+    // Инициализировать structure если её нет
+    if (!project.structure) {
+        project.structure = [];
     }
     
-    // Проверить, что файл еще не добавлен в проект
-    if (project.files.includes(fileName)) {
-        alert('Файл уже добавлен в этот проект');
-        return;
+    // Проверить, это перемещение внутри проекта или добавление из источников
+    const projectFileData = e.dataTransfer.getData('projectFile');
+    
+    if (projectFileData) {
+        // Перемещение файла внутри проекта или между проектами
+        const { fileName, path: sourcePath, projectId: sourceProjectId } = JSON.parse(projectFileData);
+        
+        if (sourceProjectId === projectId) {
+            // Перемещение внутри одного проекта
+            // Удалить из старого места
+            const sourceParent = getParentByPath(project.structure, sourcePath);
+            if (!sourceParent) return;
+            
+            const sourceIndex = sourcePath[sourcePath.length - 1];
+            const fileItem = sourceParent[sourceIndex];
+            sourceParent.splice(sourceIndex, 1);
+            
+            // Добавить в новое место
+            const targetParent = targetPath.length === 0 ? project.structure : 
+                                (getItemByPath(project.structure, targetPath)?.children || []);
+            
+            targetParent.push(fileItem);
+        } else {
+            // Перемещение между проектами
+            const sourceProject = AppState.projects[sourceProjectId];
+            if (!sourceProject) return;
+            
+            // Удалить из исходного проекта
+            const sourceParent = getParentByPath(sourceProject.structure, sourcePath);
+            if (!sourceParent) return;
+            
+            const sourceIndex = sourcePath[sourcePath.length - 1];
+            const fileItem = sourceParent[sourceIndex];
+            sourceParent.splice(sourceIndex, 1);
+            
+            // Добавить в целевой проект
+            const targetParent = targetPath.length === 0 ? project.structure :
+                                (getItemByPath(project.structure, targetPath)?.children || []);
+            
+            targetParent.push({ type: 'file', name: fileName });
+        }
+    } else {
+        // Добавление из источников
+        const fileName = e.dataTransfer.getData('text/plain');
+        
+        if (!fileName || !AppState.files[fileName]) {
+            alert('Файл не найден');
+            return;
+        }
+        
+        // Проверить, что файл еще не добавлен в этот проект
+        if (containsFile(project.structure, fileName)) {
+            alert('Файл уже добавлен в этот проект');
+            return;
+        }
+        
+        // Добавить файл в нужное место
+        const targetParent = targetPath.length === 0 ? project.structure :
+                            (getItemByPath(project.structure, targetPath)?.children || []);
+        
+        if (targetParent) {
+            targetParent.push({ type: 'file', name: fileName });
+        }
     }
     
-    // Добавить файл в проект
-    project.files.push(fileName);
     saveToLocalStorage();
     renderProjectList();
 }
@@ -853,7 +994,6 @@ function handleProjectDrop(e) {
 window.toggleProject = toggleProject;
 window.renameProject = renameProject;
 window.deleteProject = deleteProject;
-window.removeFileFromProject = removeFileFromProject;
 
 // Сохранение в localStorage
 function saveToLocalStorage() {
@@ -910,3 +1050,201 @@ function clearAllData() {
 
 // Экспорт функции для использования в консоли
 window.clearAllData = clearAllData;
+
+// ========================================
+// ФУНКЦИИ ДЛЯ РАБОТЫ С ПАПКАМИ В ПРОЕКТАХ
+// ========================================
+
+// Получить элемент по пути в структуре
+function getItemByPath(structure, path) {
+    let current = structure;
+    for (let i = 0; i < path.length - 1; i++) {
+        const index = path[i];
+        if (current[index] && current[index].type === 'folder') {
+            current = current[index].children || [];
+        } else {
+            return null;
+        }
+    }
+    return current[path[path.length - 1]];
+}
+
+// Получить родительский контейнер по пути
+function getParentByPath(structure, path) {
+    if (path.length === 0) return structure;
+    
+    let current = structure;
+    for (let i = 0; i < path.length - 1; i++) {
+        const index = path[i];
+        if (current[index] && current[index].type === 'folder') {
+            current = current[index].children || [];
+        } else {
+            return null;
+        }
+    }
+    return current;
+}
+
+// Добавить папку в проект
+function addFolderToProject(projectId, path) {
+    const project = AppState.projects[projectId];
+    if (!project) return;
+    
+    const folderName = prompt('Введите название папки:');
+    if (!folderName || !folderName.trim()) return;
+    
+    // Инициализировать structure если её нет
+    if (!project.structure) {
+        project.structure = [];
+    }
+    
+    const parent = getParentByPath(project.structure, path);
+    if (!parent) return;
+    
+    const newFolder = {
+        type: 'folder',
+        name: folderName.trim(),
+        expanded: true,
+        children: []
+    };
+    
+    // Добавить в нужное место
+    if (path.length === 0) {
+        parent.push(newFolder);
+    } else {
+        const parentFolder = getItemByPath(project.structure, path);
+        if (parentFolder && parentFolder.type === 'folder') {
+            if (!parentFolder.children) parentFolder.children = [];
+            parentFolder.children.push(newFolder);
+        }
+    }
+    
+    saveToLocalStorage();
+    renderProjectList();
+}
+
+// Переименовать папку
+function renameFolderInProject(projectId, path) {
+    const project = AppState.projects[projectId];
+    if (!project) return;
+    
+    const folder = getItemByPath(project.structure, path);
+    if (!folder || folder.type !== 'folder') return;
+    
+    const newName = prompt('Введите новое название папки:', folder.name);
+    if (newName && newName.trim() && newName !== folder.name) {
+        folder.name = newName.trim();
+        saveToLocalStorage();
+        renderProjectList();
+    }
+}
+
+// Удалить папку
+function deleteFolderFromProject(projectId, path) {
+    const project = AppState.projects[projectId];
+    if (!project) return;
+    
+    if (!confirm('Удалить папку? Все файлы внутри останутся в проекте.')) return;
+    
+    const parent = getParentByPath(project.structure, path);
+    if (!parent) return;
+    
+    const index = path[path.length - 1];
+    const folder = parent[index];
+    
+    // Переместить все файлы из папки в родительский контейнер
+    if (folder && folder.type === 'folder' && folder.children) {
+        const files = folder.children.filter(item => item.type === 'file');
+        parent.splice(index, 1, ...files);
+    } else {
+        parent.splice(index, 1);
+    }
+    
+    saveToLocalStorage();
+    renderProjectList();
+}
+
+// Переключить состояние папки
+function toggleProjectFolder(projectId, path) {
+    const project = AppState.projects[projectId];
+    if (!project) return;
+    
+    const folder = getItemByPath(project.structure, path);
+    if (folder && folder.type === 'folder') {
+        folder.expanded = !folder.expanded;
+        saveToLocalStorage();
+        renderProjectList();
+    }
+}
+
+// Удалить файл из проекта по пути
+function removeFileFromProjectPath(projectId, path) {
+    const project = AppState.projects[projectId];
+    if (!project) return;
+    
+    const parent = getParentByPath(project.structure, path);
+    if (!parent) return;
+    
+    const index = path[path.length - 1];
+    const file = parent[index];
+    
+    if (file && file.type === 'file') {
+        const fileName = file.name;
+        parent.splice(index, 1);
+        
+        // Проверить, остался ли файл в других местах проекта
+        const isInAnyProject = isFileInAnyProject(fileName);
+        
+        // Если файл не в проектах и был скрыт из источников, вернуть его в источники
+        if (!isInAnyProject && AppState.files[fileName]?.hiddenFromSources) {
+            AppState.files[fileName].hiddenFromSources = false;
+        }
+        
+        saveToLocalStorage();
+        renderProjectList();
+        renderFileList();
+    }
+}
+
+// Проверить, есть ли файл хотя бы в одном проекте
+function isFileInAnyProject(fileName) {
+    return Object.values(AppState.projects).some(project => {
+        return containsFile(project.structure || [], fileName);
+    });
+}
+
+// Проверить, содержит ли структура файл
+function containsFile(structure, fileName) {
+    return structure.some(item => {
+        if (item.type === 'file' && item.name === fileName) {
+            return true;
+        } else if (item.type === 'folder' && item.children) {
+            return containsFile(item.children, fileName);
+        }
+        return false;
+    });
+}
+
+// Обработчик drag для файлов внутри проекта
+function handleProjectFileDragStart(e) {
+    e.stopPropagation();
+    const fileName = e.currentTarget.dataset.fileName;
+    const path = e.currentTarget.dataset.path;
+    const projectId = e.currentTarget.closest('.project-item').dataset.projectId;
+    
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('projectFile', JSON.stringify({ fileName, path, projectId }));
+    e.currentTarget.classList.add('dragging');
+}
+
+// Обработчик окончания drag для файлов внутри проекта
+function handleProjectFileDragEnd(e) {
+    e.currentTarget.classList.remove('dragging');
+}
+
+// Сделать функции глобальными
+window.toggleProjectFolder = toggleProjectFolder;
+window.addFolderToProject = addFolderToProject;
+window.renameFolderInProject = renameFolderInProject;
+window.deleteFolderFromProject = deleteFolderFromProject;
+window.removeFileFromProjectPath = removeFileFromProjectPath;
