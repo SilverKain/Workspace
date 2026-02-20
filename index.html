@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Markdown Viewer</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <!-- Левая панель -->
+        <aside class="left-panel">
+            <!-- Верхняя секция: Проекты -->
+            <div class="left-section projects-section">
+                <div class="section-header">
+                    <h2>Проекты</h2>
+                    <button id="addProjectBtn" class="btn-add">
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                            <path d="M8 3V13M3 8H13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                        </svg>
+                        Создать проект
+                    </button>
+                </div>
+                <div id="projectList" class="project-list"></div>
+            </div>
+            
+            <!-- Нижняя секция: Загруженные файлы -->
+            <div class="left-section files-section">
+                <div class="section-header">
+                    <h2>Источники</h2>
+                    <button id="loadFilesBtn" class="btn-add">
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                            <path d="M8 3V13M3 8H13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                        </svg>
+                        Загрузить файлы
+                    </button>
+                    <input type="file" id="fileInput" multiple accept=".md,.txt" style="display: none;">
+                </div>
+                <div id="fileList" class="file-list"></div>
+            </div>
+        </aside>
+
+        <!-- Центральная панель -->
+        <main class="center-panel">
+            <div id="urlSection" class="url-section">
+                <input type="text" id="urlInput" placeholder="Введите URL для отображения в iframe">
+                <button id="loadUrlBtn" class="btn-secondary">Открыть URL</button>
+                <button id="backToFileBtn" class="btn-secondary" style="display: none;">Вернуться к файлу</button>
+            </div>
+            <div id="contentArea" class="content-area">
+                <div class="welcome-screen">
+                    <h1>Добро пожаловать!</h1>
+                    <p>Загрузите Markdown-файлы, чтобы начать работу.</p>
+                    <p>Или введите URL выше для просмотра веб-страницы.</p>
+                </div>
+            </div>
+        </main>
+
+        <!-- Правая панель -->
+        <aside class="right-panel">
+            <div class="panel-header">
+                <h2>Календарь</h2>
+            </div>
+            <div id="calendar" class="calendar"></div>
+            <div id="statsSection" class="stats-section">
+                <h3>Статистика</h3>
+                <div id="statsContent"></div>
+            </div>
+        </aside>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
