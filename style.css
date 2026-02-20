@@ -437,6 +437,33 @@ button {
     opacity: 0.5;
 }
 
+/* Drop-зоны между файлами */
+.file-drop-target {
+    height: 4px;
+    margin: 2px 0;
+    border-radius: 2px;
+    transition: all 0.2s;
+    position: relative;
+}
+
+.file-drop-target.drag-over {
+    height: 8px;
+    background: var(--primary-color);
+    margin: 4px 0;
+}
+
+.file-drop-target.drag-over::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    height: 2px;
+    background: var(--primary-color);
+    box-shadow: 0 0 8px rgba(26, 115, 232, 0.5);
+}
+
 
 /* Центральная панель */
 .url-section {

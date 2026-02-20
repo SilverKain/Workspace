@@ -734,6 +734,14 @@ function createProjectElement(project) {
         fileEl.addEventListener('dragend', handleProjectFileDragEnd);
     });
     
+    // Добавить обработчики для drop-зон между файлами
+    const dropTargets = projectDiv.querySelectorAll('.file-drop-target');
+    dropTargets.forEach(target => {
+        target.addEventListener('dragover', handleFileDropTargetDragOver);
+        target.addEventListener('dragleave', handleFileDropTargetDragLeave);
+        target.addEventListener('drop', handleFileDropTargetDrop);
+    });
+    
     return projectDiv;
 }
 
@@ -757,12 +765,14 @@ function renderProjectStructure(structure, projectId, path) {
     structure.forEach((item, index) => {
         const currentPath = [...path, index];
         const pathStr = JSON.stringify(currentPath);
+        const parentPath = JSON.stringify(path);
         
         if (item.type === 'folder') {
             const isExpanded = item.expanded !== false;
             const childrenHTML = isExpanded ? renderProjectStructure(item.children || [], projectId, currentPath) : '';
             
             html += `
+                <div class="file-drop-target" data-project-id="${projectId}" data-parent-path="${parentPath}" data-insert-index="${index}"></div>
                 <div class="project-folder" data-path="${pathStr}">
                     <div class="folder-header" onclick="toggleProjectFolder('${projectId}', ${pathStr})">
                         <span class="folder-toggle ${isExpanded ? 'expanded' : ''}">▶</span>
@@ -790,7 +800,7 @@ function renderProjectStructure(structure, projectId, path) {
                     </div>
                     <div class="folder-content ${isExpanded ? 'expanded' : ''}">
                         ${childrenHTML}
-                        <div class="project-drop-zone folder-drop-zone" data-project-id="${projectId}" data-path="${pathStr}">
+                        <div class="project-drop-zone folder-drop-zone" data-project-id="${projectId}" data-path="${pathStr}" data-insert-index="${(item.children || []).length}">
                             Перетащите сюда
                         </div>
                     </div>
@@ -802,7 +812,8 @@ function renderProjectStructure(structure, projectId, path) {
             const displayName = `${item.name} - ${progress}%`;
             
             html += `
-                <div class="project-file ${isActive}" data-file-name="${item.name}" data-path="${pathStr}">
+                <div class="file-drop-target" data-project-id="${projectId}" data-parent-path="${parentPath}" data-insert-index="${index}"></div>
+                <div class="project-file ${isActive}" data-file-name="${item.name}" data-path="${pathStr}" data-project-id="${projectId}">
                     <span class="project-file-name">${displayName}</span>
                     <button class="btn-icon" onclick="event.stopPropagation(); removeFileFromProjectPath('${projectId}', ${pathStr})" title="Удалить из проекта">
                         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -813,6 +824,12 @@ function renderProjectStructure(structure, projectId, path) {
             `;
         }
     });
+    
+    // Добавить drop-зону в конец списка
+    if (structure.length > 0) {
+        const parentPath = JSON.stringify(path);
+        html += `<div class="file-drop-target" data-project-id="${projectId}" data-parent-path="${parentPath}" data-insert-index="${structure.length}"></div>`;
+    }
     
     return html;
 }
@@ -911,6 +928,7 @@ function handleProjectDrop(e) {
     
     const projectId = e.currentTarget.dataset.projectId;
     const targetPath = JSON.parse(e.currentTarget.dataset.path || '[]');
+    const insertIndex = parseInt(e.currentTarget.dataset.insertIndex);
     
     if (!projectId || !AppState.projects[projectId]) return;
     
@@ -930,50 +948,43 @@ function handleProjectDrop(e) {
         
         if (sourceProjectId === projectId) {
             // Перемещение внутри одного проекта
-            // Удалить из старого места
-            const sourceParent = getParentByPath(project.structure, sourcePath);
-            if (!sourceParent) return;
-            
-            const sourceIndex = sourcePath[sourcePath.length - 1];
-            const fileItem = sourceParent[sourceIndex];
-            sourceParent.splice(sourceIndex, 1);
-            
-            // Добавить в новое место
-            const targetParent = targetPath.length === 0 ? project.structure : 
-                                (getItemByPath(project.structure, targetPath)?.children || []);
-            
-            targetParent.push(fileItem);
+            // Используем логику из handleFileDropTargetDrop
+            return; // Это обрабатывается в handleFileDropTargetDrop
         } else {
             // Перемещение между проектами
             const sourceProject = AppState.projects[sourceProjectId];
             if (!sourceProject) return;
             
-            // Удалить из исходного проекта
-            const sourceParent = getParentByPath(sourceProject.structure, sourcePath);
+            const sourcePathArr = JSON.parse(sourcePath);
+            const sourceParent = getParentByPath(sourceProject.structure, sourcePathArr);
             if (!sourceParent) return;
             
-            const sourceIndex = sourcePath[sourcePath.length - 1];
+            const sourceIndex = sourcePathArr[sourcePathArr.length - 1];
             const fileItem = sourceParent[sourceIndex];
+            
+            // Удалить из исходного проекта
             sourceParent.splice(sourceIndex, 1);
             
-            // Добавить в целевой проект
+            // Добавить в целевой проект (в конец папки)
             const targetParent = targetPath.length === 0 ? project.structure :
                                 (getItemByPath(project.structure, targetPath)?.children || []);
             
-            targetParent.push({ type: 'file', name: fileName });
+            if (!isNaN(insertIndex)) {
+                targetParent.splice(insertIndex, 0, { type: 'file', name: fileName });
+            } else {
+                targetParent.push({ type: 'file', name: fileName });
+            }
         }
     } else {
         // Добавление из источников
         const fileName = e.dataTransfer.getData('text/plain');
         
         if (!fileName || !AppState.files[fileName]) {
-            alert('Файл не найден');
             return;
         }
         
         // Проверить, что файл еще не добавлен в этот проект
         if (containsFile(project.structure, fileName)) {
-            alert('Файл уже добавлен в этот проект');
             return;
         }
         
@@ -982,7 +993,11 @@ function handleProjectDrop(e) {
                             (getItemByPath(project.structure, targetPath)?.children || []);
         
         if (targetParent) {
-            targetParent.push({ type: 'file', name: fileName });
+            if (!isNaN(insertIndex)) {
+                targetParent.splice(insertIndex, 0, { type: 'file', name: fileName });
+            } else {
+                targetParent.push({ type: 'file', name: fileName });
+            }
         }
     }
     
@@ -1230,7 +1245,7 @@ function handleProjectFileDragStart(e) {
     e.stopPropagation();
     const fileName = e.currentTarget.dataset.fileName;
     const path = e.currentTarget.dataset.path;
-    const projectId = e.currentTarget.closest('.project-item').dataset.projectId;
+    const projectId = e.currentTarget.dataset.projectId;
     
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('projectFile', JSON.stringify({ fileName, path, projectId }));
@@ -1240,6 +1255,120 @@ function handleProjectFileDragStart(e) {
 // Обработчик окончания drag для файлов внутри проекта
 function handleProjectFileDragEnd(e) {
     e.currentTarget.classList.remove('dragging');
+}
+
+// Обработчики для drop-зон между файлами
+function handleFileDropTargetDragOver(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+    e.currentTarget.classList.add('drag-over');
+}
+
+function handleFileDropTargetDragLeave(e) {
+    e.currentTarget.classList.remove('drag-over');
+}
+
+function handleFileDropTargetDrop(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    e.currentTarget.classList.remove('drag-over');
+    
+    const projectId = e.currentTarget.dataset.projectId;
+    const parentPath = JSON.parse(e.currentTarget.dataset.parentPath || '[]');
+    const insertIndex = parseInt(e.currentTarget.dataset.insertIndex);
+    
+    if (!projectId || !AppState.projects[projectId]) return;
+    
+    const project = AppState.projects[projectId];
+    if (!project.structure) project.structure = [];
+    
+    // Проверить, это перемещение внутри проекта или добавление из источников
+    const projectFileData = e.dataTransfer.getData('projectFile');
+    
+    if (projectFileData) {
+        // Перемещение файла внутри проекта или между проектами
+        const { fileName, path: sourcePath, projectId: sourceProjectId } = JSON.parse(projectFileData);
+        
+        if (sourceProjectId === projectId) {
+            // Перемещение внутри одного проекта
+            const sourcePathArr = JSON.parse(sourcePath);
+            
+            // Получить элемент
+            const sourceParent = getParentByPath(project.structure, sourcePathArr);
+            if (!sourceParent) return;
+            
+            const sourceIndex = sourcePathArr[sourcePathArr.length - 1];
+            const fileItem = sourceParent[sourceIndex];
+            
+            // Проверить, не перемещаем ли на то же место
+            const targetParent = parentPath.length === 0 ? project.structure : 
+                               (getItemByPath(project.structure, parentPath)?.children || project.structure);
+            
+            // Проверить, что родитель тот же
+            const isSameParent = JSON.stringify(sourcePathArr.slice(0, -1)) === JSON.stringify(parentPath);
+            
+            if (isSameParent && (sourceIndex === insertIndex || sourceIndex === insertIndex - 1)) {
+                // Перемещение на то же место или рядом
+                return;
+            }
+            
+            // Удалить из старого места
+            sourceParent.splice(sourceIndex, 1);
+            
+            // Вычислить новый индекс (если удаляем из того же родителя и индекс был меньше)
+            let finalIndex = insertIndex;
+            if (isSameParent && sourceIndex < insertIndex) {
+                finalIndex = insertIndex - 1;
+            }
+            
+            // Добавить в новое место
+            targetParent.splice(finalIndex, 0, fileItem);
+        } else {
+            // Перемещение между проектами
+            const sourceProject = AppState.projects[sourceProjectId];
+            if (!sourceProject) return;
+            
+            const sourcePathArr = JSON.parse(sourcePath);
+            const sourceParent = getParentByPath(sourceProject.structure, sourcePathArr);
+            if (!sourceParent) return;
+            
+            const sourceIndex = sourcePathArr[sourcePathArr.length - 1];
+            const fileItem = sourceParent[sourceIndex];
+            
+            // Удалить из исходного проекта
+            sourceParent.splice(sourceIndex, 1);
+            
+            // Добавить в целевой проект
+            const targetParent = parentPath.length === 0 ? project.structure :
+                               (getItemByPath(project.structure, parentPath)?.children || project.structure);
+            
+            targetParent.splice(insertIndex, 0, { type: 'file', name: fileName });
+        }
+    } else {
+        // Добавление из источников
+        const fileName = e.dataTransfer.getData('text/plain');
+        
+        if (!fileName || !AppState.files[fileName]) {
+            return;
+        }
+        
+        // Проверить, что файл еще не добавлен в этот проект
+        if (containsFile(project.structure, fileName)) {
+            return;
+        }
+        
+        // Добавить файл в нужное место
+        const targetParent = parentPath.length === 0 ? project.structure :
+                           (getItemByPath(project.structure, parentPath)?.children || project.structure);
+        
+        if (targetParent) {
+            targetParent.splice(insertIndex, 0, { type: 'file', name: fileName });
+        }
+    }
+    
+    saveToLocalStorage();
+    renderProjectList();
 }
 
 // Сделать функции глобальными
