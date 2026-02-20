@@ -37,6 +37,13 @@ function initEventListeners() {
     document.getElementById('loadUrlBtn').addEventListener('click', handleUrlLoad);
     document.getElementById('backToFileBtn').addEventListener('click', handleBackToFile);
     document.getElementById('addProjectBtn').addEventListener('click', handleAddProject);
+    
+    // Обработчики экспорта/импорта
+    document.getElementById('exportBtn').addEventListener('click', handleExportData);
+    document.getElementById('importBtn').addEventListener('click', () => {
+        document.getElementById('importInput').click();
+    });
+    document.getElementById('importInput').addEventListener('change', handleImportData);
 }
 
 // Обработка выбора файлов
@@ -496,6 +503,118 @@ function handleBackToFile() {
         AppState.isShowingUrl = false;
         document.getElementById('backToFileBtn').style.display = 'none';
     }
+}
+
+// ========================================
+// ФУНКЦИИ ЭКСПОРТА И ИМПОРТА ДАННЫХ
+// ========================================
+
+// Экспорт данных в JSON
+function handleExportData() {
+    // Подготовить данные для экспорта
+    const exportData = {
+        version: '1.0',
+        exportDate: new Date().toISOString(),
+        projects: Object.values(AppState.projects).map(project => ({
+            name: project.name,
+            files: project.files.map(fileName => ({
+                name: fileName,
+                progress: AppState.files[fileName]?.readProgress || 0
+            }))
+        })),
+        // Добавить файлы без проектов
+        filesWithoutProjects: Object.keys(AppState.files)
+            .filter(fileName => {
+                // Проверить, не входит ли файл ни в один проект
+                const inProject = Object.values(AppState.projects).some(p => p.files.includes(fileName));
+                return !inProject && !AppState.files[fileName].hiddenFromSources;
+            })
+            .map(fileName => ({
+                name: fileName,
+                progress: AppState.files[fileName]?.readProgress || 0
+            }))
+    };
+    
+    // Создать blob и скачать
+    const dataStr = JSON.stringify(exportData, null, 2);
+    const blob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `workspace-export-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    
+    alert('Данные успешно экспортированы!');
+}
+
+// Импорт данных из JSON
+function handleImportData(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    
+    reader.onload = (e) => {
+        try {
+            const importData = JSON.parse(e.target.result);
+            
+            if (!importData.projects) {
+                alert('Неверный формат файла!');
+                return;
+            }
+            
+            // Показать информацию о данных
+            const projectCount = importData.projects.length;
+            const fileCount = importData.projects.reduce((sum, p) => sum + p.files.length, 0) + 
+                             (importData.filesWithoutProjects?.length || 0);
+            
+            if (!confirm(`Загрузить данные?\n\nПроектов: ${projectCount}\nФайлов: ${fileCount}\n\nТекущие данные будут объединены с загруженными.`)) {
+                return;
+            }
+            
+            // Импортировать проекты
+            importData.projects.forEach(projectData => {
+                const projectId = 'project_' + AppState.projectIdCounter++;
+                AppState.projects[projectId] = {
+                    id: projectId,
+                    name: projectData.name,
+                    files: projectData.files.map(f => f.name),
+                    expanded: false,
+                    description: ''
+                };
+                
+                // Обновить прогресс файлов
+                projectData.files.forEach(fileData => {
+                    if (AppState.files[fileData.name]) {
+                        // Сохранить максимальный прогресс
+                        AppState.files[fileData.name].readProgress = Math.max(
+                            AppState.files[fileData.name].readProgress || 0,
+                            fileData.progress || 0
+                        );
+                    }
+                });
+            });
+            
+            saveToLocalStorage();
+            renderProjectList();
+            renderFileList();
+            renderStats();
+            
+            alert('Данные успешно импортированы!');
+        } catch (error) {
+            console.error('Ошибка импорта:', error);
+            alert('Ошибка при чтении файла!');
+        }
+    };
+    
+    reader.readAsText(file);
+    
+    // Очистить input
+    event.target.value = '';
 }
 
 // ========================================

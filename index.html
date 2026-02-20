@@ -25,6 +25,25 @@
                 <div id="projectList" class="project-list"></div>
             </div>
             
+            <!-- Секция экспорта/импорта -->
+            <div class="left-section export-section">
+                <div class="export-buttons">
+                    <button id="exportBtn" class="btn-export">
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                            <path d="M8 3V11M8 3L5 6M8 3L11 6M3 13H13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                        Сохранить
+                    </button>
+                    <button id="importBtn" class="btn-export">
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                            <path d="M8 11V3M8 11L5 8M8 11L11 8M3 13H13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                        Загрузить
+                    </button>
+                    <input type="file" id="importInput" accept=".json" style="display: none;">
+                </div>
+            </div>
+            
             <!-- Нижняя секция: Загруженные файлы -->
             <div class="left-section files-section">
                 <div class="section-header">

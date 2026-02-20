@@ -63,6 +63,17 @@ body {
     overflow-y: auto;
 }
 
+.export-section {
+    padding: 12px;
+    border-bottom: 1px solid var(--border);
+}
+
+.export-buttons {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
 .center-panel {
     padding: 24px;
     display: flex;
@@ -115,6 +126,22 @@ button {
 
 .btn-add:hover {
     background: #f1f3f4;
+    box-shadow: var(--shadow-md);
+}
+
+.btn-export {
+    background: var(--primary-color);
+    color: white;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    justify-content: center;
+    padding: 10px 12px;
+    font-size: 13px;
+}
+
+.btn-export:hover {
+    background: var(--primary-hover);
     box-shadow: var(--shadow-md);
 }
 
