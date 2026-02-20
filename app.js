@@ -58,7 +58,8 @@ function handleFileSelect(event) {
                 content: content,
                 openCount: AppState.files[fileName]?.openCount || 0,
                 lastOpened: AppState.files[fileName]?.lastOpened || null,
-                readProgress: AppState.files[fileName]?.readProgress || 0
+                readProgress: AppState.files[fileName]?.readProgress || 0,
+                hiddenFromSources: AppState.files[fileName]?.hiddenFromSources || false
             };
             
             saveToLocalStorage();
@@ -190,14 +191,19 @@ function formatDate(date) {
 function renderFileList() {
     const fileList = document.getElementById('fileList');
     
-    if (Object.keys(AppState.files).length === 0) {
+    // Фильтруем файлы, которые не скрыты из источников
+    const visibleFiles = Object.keys(AppState.files).filter(fileName => {
+        return !AppState.files[fileName].hiddenFromSources;
+    });
+    
+    if (visibleFiles.length === 0) {
         fileList.innerHTML = '<div class="empty-state">Нет загруженных файлов</div>';
         return;
     }
     
     fileList.innerHTML = '';
     
-    Object.keys(AppState.files).forEach(fileName => {
+    visibleFiles.forEach(fileName => {
         const file = AppState.files[fileName];
         const fileItem = document.createElement('div');
         fileItem.className = 'file-item';
@@ -624,10 +630,30 @@ function renameProject(projectId) {
 
 // Удалить проект
 function deleteProject(projectId) {
-    if (confirm('Удалить проект? Файлы останутся в списке источников.')) {
+    const project = AppState.projects[projectId];
+    if (!project) return;
+    
+    if (confirm('Удалить проект? Файлы вернутся в источники, если их там нет.')) {
+        // Получить файлы удаляемого проекта
+        const projectFiles = [...project.files];
+        
+        // Удалить проект
         delete AppState.projects[projectId];
+        
+        // Проверить каждый файл из удаленного проекта
+        projectFiles.forEach(fileName => {
+            // Проверить, остался ли файл в других проектах
+            const isInAnyProject = Object.values(AppState.projects).some(p => p.files.includes(fileName));
+            
+            // Если файл не в других проектах и был скрыт из источников, вернуть его
+            if (!isInAnyProject && AppState.files[fileName]?.hiddenFromSources) {
+                AppState.files[fileName].hiddenFromSources = false;
+            }
+        });
+        
         saveToLocalStorage();
         renderProjectList();
+        renderFileList();
     }
 }
 
@@ -637,41 +663,31 @@ function removeFileFromProject(projectId, fileName) {
     if (!project) return;
     
     project.files = project.files.filter(f => f !== fileName);
+    
+    // Проверить, остался ли файл хотя бы в одном проекте
+    const isInAnyProject = Object.values(AppState.projects).some(p => p.files.includes(fileName));
+    
+    // Если файл не в проектах и был скрыт из источников, вернуть его в источники
+    if (!isInAnyProject && AppState.files[fileName]?.hiddenFromSources) {
+        AppState.files[fileName].hiddenFromSources = false;
+    }
+    
     saveToLocalStorage();
     renderProjectList();
+    renderFileList();
 }
 
-// Удалить файл из источников
+// Удалить файл из источников (скрыть, но оставить в проектах)
 function deleteFile(fileName) {
-    if (!confirm(`Удалить файл "${fileName}"? Это действие нельзя отменить.`)) return;
+    if (!confirm(`Удалить файл "${fileName}" из источников? Файл останется в проектах.`)) return;
     
-    // Удалить файл из AppState.files
-    delete AppState.files[fileName];
-    
-    // Удалить файл из всех проектов
-    Object.values(AppState.projects).forEach(project => {
-        project.files = project.files.filter(f => f !== fileName);
-    });
-    
-    // Если удаляемый файл сейчас открыт, закрыть его
-    if (AppState.currentFile === fileName) {
-        AppState.currentFile = null;
-        AppState.lastFileView = null;
-        const contentArea = document.getElementById('contentArea');
-        contentArea.innerHTML = `
-            <div class="welcome-screen">
-                <h1>Добро пожаловать!</h1>
-                <p>Загрузите Markdown-файлы, чтобы начать работу.</p>
-                <p>Или введите URL выше для просмотра веб-страницы.</p>
-            </div>
-        `;
+    // Пометить файл как скрытый из источников
+    if (AppState.files[fileName]) {
+        AppState.files[fileName].hiddenFromSources = true;
     }
     
     saveToLocalStorage();
     renderFileList();
-    renderProjectList();
-    renderCalendar();
-    renderStats();
 }
 
 // Обработчики Drag and Drop для проектов
