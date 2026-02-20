@@ -59,7 +59,7 @@ function handleFileSelect(event) {
                 openCount: AppState.files[fileName]?.openCount || 0,
                 lastOpened: AppState.files[fileName]?.lastOpened || null,
                 readProgress: AppState.files[fileName]?.readProgress || 0,
-                hiddenFromSources: AppState.files[fileName]?.hiddenFromSources || false
+                hiddenFromSources: false // При загрузке файл всегда виден в источниках
             };
             
             saveToLocalStorage();
