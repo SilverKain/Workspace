@@ -139,12 +139,13 @@ function displayFile(fileName) {
     contentArea._scrollHandler = () => handleContentScroll(fileName);
     contentArea.addEventListener('scroll', contentArea._scrollHandler);
     
-    // Вычислить начальный прогресс
+    // Восстановить позицию прокрутки на основе сохраненного процента
     setTimeout(() => {
-        const initialProgress = calculateScrollProgress(contentArea);
-        if (AppState.files[fileName] && AppState.files[fileName].readProgress < initialProgress) {
-            AppState.files[fileName].readProgress = initialProgress;
-            saveToLocalStorage();
+        const savedProgress = AppState.files[fileName]?.readProgress || 0;
+        if (savedProgress > 0) {
+            const scrollHeight = contentArea.scrollHeight - contentArea.clientHeight;
+            const targetScrollTop = (savedProgress / 100) * scrollHeight;
+            contentArea.scrollTop = targetScrollTop;
         }
     }, 100);
     
@@ -510,7 +511,7 @@ function handleBackToFile() {
 // ========================================
 
 // Экспорт данных в JSON
-function handleExportData() {
+async function handleExportData() {
     // Подготовить данные для экспорта
     const exportData = {
         version: '1.0',
@@ -535,14 +536,41 @@ function handleExportData() {
             }))
     };
     
-    // Создать blob и скачать
     const dataStr = JSON.stringify(exportData, null, 2);
     const blob = new Blob([dataStr], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
+    const fileName = `workspace-export-${new Date().toISOString().split('T')[0]}.json`;
     
+    // Попытка использовать File System Access API для диалога сохранения
+    if ('showSaveFilePicker' in window) {
+        try {
+            const handle = await window.showSaveFilePicker({
+                suggestedName: fileName,
+                types: [{
+                    description: 'JSON файлы',
+                    accept: {'application/json': ['.json']}
+                }]
+            });
+            
+            const writable = await handle.createWritable();
+            await writable.write(blob);
+            await writable.close();
+            
+            alert('Данные успешно экспортированы!');
+            return;
+        } catch (err) {
+            // Пользователь отменил диалог или произошла ошибка
+            if (err.name !== 'AbortError') {
+                console.error('Ошибка при сохранении файла:', err);
+            }
+            return;
+        }
+    }
+    
+    // Fallback для старых браузеров - стандартное скачивание
+    const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `workspace-export-${new Date().toISOString().split('T')[0]}.json`;
+    link.download = fileName;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
