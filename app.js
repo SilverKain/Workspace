@@ -91,11 +91,11 @@ function handleFileSelect(event) {
 }
 
 // Вычислить прогресс прокрутки
-function calculateScrollProgress(element) {
+function calculateScrollProgress(element, currentProgress = 0) {
     const scrollTop = element.scrollTop;
     const scrollHeight = element.scrollHeight - element.clientHeight;
     
-    if (scrollHeight <= 0) return 100; // Контент полностью виден
+    if (scrollHeight <= 0) return currentProgress;
     
     const progress = Math.round((scrollTop / scrollHeight) * 100);
     return Math.min(100, Math.max(0, progress));
@@ -104,7 +104,8 @@ function calculateScrollProgress(element) {
 // Обработчик прокрутки для отслеживания прогресса
 function handleContentScroll(fileName) {
     const contentArea = document.getElementById('contentArea');
-    const progress = calculateScrollProgress(contentArea);
+    const existingProgress = AppState.files[fileName]?.readProgress || 0;
+    const progress = calculateScrollProgress(contentArea, existingProgress);
     
     if (AppState.files[fileName]) {
         AppState.files[fileName].readProgress = progress;
