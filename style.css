@@ -730,6 +730,15 @@ button {
     color: rgba(255, 255, 255, 0.8);
 }
 
+.memory-actions {
+    margin: 12px 0 16px;
+}
+
+#clearStorageBtn {
+    width: 100%;
+    margin-left: 0;
+}
+
 /* Статистика */
 .stats-section {
     padding: 16px;

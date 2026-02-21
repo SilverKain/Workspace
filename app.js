@@ -44,6 +44,11 @@ function initEventListeners() {
         document.getElementById('importInput').click();
     });
     document.getElementById('importInput').addEventListener('change', handleImportData);
+
+    const clearStorageBtn = document.getElementById('clearStorageBtn');
+    if (clearStorageBtn) {
+        clearStorageBtn.addEventListener('click', clearAllData);
+    }
 }
 
 // Обработка выбора файлов
@@ -510,63 +515,192 @@ function handleBackToFile() {
 // ФУНКЦИИ ЭКСПОРТА И ИМПОРТА ДАННЫХ
 // ========================================
 
+function cloneProjectStructure(structure) {
+    if (!Array.isArray(structure)) return [];
+
+    return structure.map(item => {
+        if (item?.type === 'folder') {
+            return {
+                type: 'folder',
+                name: item.name || 'Новая папка',
+                expanded: item.expanded !== false,
+                children: cloneProjectStructure(item.children || [])
+            };
+        }
+
+        return {
+            type: 'file',
+            name: item?.name || ''
+        };
+    }).filter(item => item.name);
+}
+
+function buildProjectStructureFromLegacyFiles(files) {
+    if (!Array.isArray(files)) return [];
+
+    return files
+        .map(file => (typeof file === 'string' ? file : file?.name))
+        .filter(Boolean)
+        .map(fileName => ({
+            type: 'file',
+            name: fileName
+        }));
+}
+
+function countFilesInImportedStructure(structure) {
+    if (!Array.isArray(structure)) return 0;
+
+    return structure.reduce((sum, item) => {
+        if (item?.type === 'file') return sum + 1;
+        if (item?.type === 'folder') return sum + countFilesInImportedStructure(item.children || []);
+        return sum;
+    }, 0);
+}
+
+function collectFilesFromLegacyImport(importData) {
+    const legacyFiles = {};
+
+    (importData.projects || []).forEach(project => {
+        (project.files || []).forEach(file => {
+            const fileName = typeof file === 'string' ? file : file?.name;
+            if (!fileName) return;
+
+            legacyFiles[fileName] = {
+                name: fileName,
+                content: AppState.files[fileName]?.content || '',
+                readProgress: Math.max(
+                    AppState.files[fileName]?.readProgress || 0,
+                    typeof file?.progress === 'number' ? file.progress : 0
+                ),
+                openCount: AppState.files[fileName]?.openCount || 0,
+                lastOpened: AppState.files[fileName]?.lastOpened || null,
+                hiddenFromSources: AppState.files[fileName]?.hiddenFromSources || false
+            };
+        });
+    });
+
+    (importData.filesWithoutProjects || []).forEach(file => {
+        const fileName = typeof file === 'string' ? file : file?.name;
+        if (!fileName) return;
+
+        legacyFiles[fileName] = {
+            name: fileName,
+            content: AppState.files[fileName]?.content || '',
+            readProgress: Math.max(
+                AppState.files[fileName]?.readProgress || 0,
+                typeof file?.progress === 'number' ? file.progress : 0
+            ),
+            openCount: AppState.files[fileName]?.openCount || 0,
+            lastOpened: AppState.files[fileName]?.lastOpened || null,
+            hiddenFromSources: AppState.files[fileName]?.hiddenFromSources || false
+        };
+    });
+
+    return legacyFiles;
+}
+
+function normalizeImportedFiles(importData) {
+    if (importData.files && typeof importData.files === 'object' && !Array.isArray(importData.files)) {
+        const normalizedFiles = {};
+
+        Object.entries(importData.files).forEach(([key, value]) => {
+            const fileName = value?.name || key;
+            if (!fileName) return;
+
+            normalizedFiles[fileName] = {
+                name: fileName,
+                content: typeof value?.content === 'string' ? value.content : '',
+                readProgress: typeof value?.readProgress === 'number' ? value.readProgress : 0,
+                openCount: typeof value?.openCount === 'number' ? value.openCount : 0,
+                lastOpened: value?.lastOpened || null,
+                hiddenFromSources: Boolean(value?.hiddenFromSources)
+            };
+        });
+
+        return normalizedFiles;
+    }
+
+    return collectFilesFromLegacyImport(importData);
+}
+
+function normalizeImportedProjects(importData) {
+    if (!Array.isArray(importData.projects)) return [];
+
+    return importData.projects.map(project => ({
+        name: project?.name || 'Импортированный проект',
+        expanded: project?.expanded !== false,
+        description: project?.description || '',
+        structure: Array.isArray(project?.structure)
+            ? cloneProjectStructure(project.structure)
+            : buildProjectStructureFromLegacyFiles(project?.files || [])
+    }));
+}
+
 // Экспорт данных в JSON
 async function handleExportData() {
-    // Подготовить данные для экспорта
+    const projectsForExport = Object.values(AppState.projects).map(project => ({
+        id: project.id,
+        name: project.name,
+        expanded: project.expanded !== false,
+        description: project.description || '',
+        structure: Array.isArray(project.structure)
+            ? cloneProjectStructure(project.structure)
+            : buildProjectStructureFromLegacyFiles(project.files || [])
+    }));
+
+    const filesForExport = Object.entries(AppState.files).reduce((acc, [fileName, fileData]) => {
+        acc[fileName] = {
+            name: fileName,
+            content: typeof fileData.content === 'string' ? fileData.content : '',
+            readProgress: fileData.readProgress || 0,
+            openCount: fileData.openCount || 0,
+            lastOpened: fileData.lastOpened || null,
+            hiddenFromSources: Boolean(fileData.hiddenFromSources)
+        };
+        return acc;
+    }, {});
+
     const exportData = {
-        version: '1.0',
+        version: '2.0',
         exportDate: new Date().toISOString(),
-        projects: Object.values(AppState.projects).map(project => ({
-            name: project.name,
-            files: project.files.map(fileName => ({
-                name: fileName,
-                progress: AppState.files[fileName]?.readProgress || 0
-            }))
-        })),
-        // Добавить файлы без проектов
-        filesWithoutProjects: Object.keys(AppState.files)
-            .filter(fileName => {
-                // Проверить, не входит ли файл ни в один проект
-                const inProject = Object.values(AppState.projects).some(p => p.files.includes(fileName));
-                return !inProject && !AppState.files[fileName].hiddenFromSources;
-            })
-            .map(fileName => ({
-                name: fileName,
-                progress: AppState.files[fileName]?.readProgress || 0
-            }))
+        projects: projectsForExport,
+        files: filesForExport,
+        statistics: AppState.statistics,
+        currentFile: AppState.currentFile,
+        selectedDate: AppState.selectedDate,
+        currentMonth: AppState.currentMonth,
+        currentYear: AppState.currentYear
     };
-    
+
     const dataStr = JSON.stringify(exportData, null, 2);
     const blob = new Blob([dataStr], { type: 'application/json' });
     const fileName = `workspace-export-${new Date().toISOString().split('T')[0]}.json`;
-    
-    // Попытка использовать File System Access API для диалога сохранения
-    if ('showSaveFilePicker' in window) {
+
+    if (typeof window.showSaveFilePicker === 'function') {
         try {
             const handle = await window.showSaveFilePicker({
                 suggestedName: fileName,
                 types: [{
                     description: 'JSON файлы',
-                    accept: {'application/json': ['.json']}
+                    accept: { 'application/json': ['.json'] }
                 }]
             });
-            
+
             const writable = await handle.createWritable();
-            await writable.write(blob);
+            await writable.write(dataStr);
             await writable.close();
-            
+
             alert('Данные успешно экспортированы!');
             return;
         } catch (err) {
-            // Пользователь отменил диалог или произошла ошибка
-            if (err.name !== 'AbortError') {
-                console.error('Ошибка при сохранении файла:', err);
+            if (err.name === 'AbortError') {
+                return;
             }
-            return;
+
+            console.error('Ошибка при сохранении файла:', err);
         }
     }
-    
-    // Fallback для старых браузеров - стандартное скачивание
+
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
@@ -575,72 +709,95 @@ async function handleExportData() {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-    
-    alert('Данные успешно экспортированы!');
+
+    alert('Данные экспортированы через загрузки браузера.');
 }
 
 // Импорт данных из JSON
 function handleImportData(event) {
     const file = event.target.files[0];
     if (!file) return;
-    
+
     const reader = new FileReader();
-    
+
     reader.onload = (e) => {
         try {
             const importData = JSON.parse(e.target.result);
-            
-            if (!importData.projects) {
+            const importedProjects = normalizeImportedProjects(importData);
+            const importedFiles = normalizeImportedFiles(importData);
+
+            if (importedProjects.length === 0 && Object.keys(importedFiles).length === 0) {
                 alert('Неверный формат файла!');
                 return;
             }
-            
-            // Показать информацию о данных
-            const projectCount = importData.projects.length;
-            const fileCount = importData.projects.reduce((sum, p) => sum + p.files.length, 0) + 
-                             (importData.filesWithoutProjects?.length || 0);
-            
-            if (!confirm(`Загрузить данные?\n\nПроектов: ${projectCount}\nФайлов: ${fileCount}\n\nТекущие данные будут объединены с загруженными.`)) {
+
+            const projectCount = importedProjects.length;
+            const fileCount = Object.keys(importedFiles).length;
+            const filesInProjects = importedProjects.reduce((sum, project) => {
+                return sum + countFilesInImportedStructure(project.structure);
+            }, 0);
+
+            if (!confirm(`Загрузить данные?\n\nПроектов: ${projectCount}\nФайлов: ${fileCount}\nФайлов в структуре проектов: ${filesInProjects}\n\nТекущие данные будут объединены с загруженными.`)) {
                 return;
             }
-            
-            // Импортировать проекты
-            importData.projects.forEach(projectData => {
+
+            Object.entries(importedFiles).forEach(([fileName, importedFile]) => {
+                const existingFile = AppState.files[fileName] || {};
+
+                AppState.files[fileName] = {
+                    name: fileName,
+                    content: typeof importedFile.content === 'string' ? importedFile.content : (existingFile.content || ''),
+                    readProgress: Math.max(existingFile.readProgress || 0, importedFile.readProgress || 0),
+                    openCount: Math.max(existingFile.openCount || 0, importedFile.openCount || 0),
+                    lastOpened: importedFile.lastOpened || existingFile.lastOpened || null,
+                    hiddenFromSources: importedFile.hiddenFromSources ?? existingFile.hiddenFromSources ?? false
+                };
+            });
+
+            importedProjects.forEach(projectData => {
                 const projectId = 'project_' + AppState.projectIdCounter++;
                 AppState.projects[projectId] = {
                     id: projectId,
                     name: projectData.name,
-                    files: projectData.files.map(f => f.name),
-                    expanded: false,
-                    description: ''
+                    structure: cloneProjectStructure(projectData.structure),
+                    expanded: projectData.expanded,
+                    description: projectData.description
                 };
-                
-                // Обновить прогресс файлов
-                projectData.files.forEach(fileData => {
-                    if (AppState.files[fileData.name]) {
-                        // Сохранить максимальный прогресс
-                        AppState.files[fileData.name].readProgress = Math.max(
-                            AppState.files[fileData.name].readProgress || 0,
-                            fileData.progress || 0
-                        );
+            });
+
+            if (importData.statistics && typeof importData.statistics === 'object') {
+                Object.entries(importData.statistics).forEach(([date, filesStats]) => {
+                    if (!AppState.statistics[date]) {
+                        AppState.statistics[date] = {};
+                    }
+
+                    if (filesStats && typeof filesStats === 'object') {
+                        Object.entries(filesStats).forEach(([fileName, count]) => {
+                            const existingCount = AppState.statistics[date][fileName] || 0;
+                            AppState.statistics[date][fileName] = existingCount + (Number(count) || 0);
+                        });
                     }
                 });
-            });
-            
+            }
+
+            if (importData.currentFile && AppState.files[importData.currentFile]) {
+                AppState.currentFile = importData.currentFile;
+            }
+
             saveToLocalStorage();
             renderProjectList();
             renderFileList();
             renderStats();
-            
+
             alert('Данные успешно импортированы!');
         } catch (error) {
             console.error('Ошибка импорта:', error);
             alert('Ошибка при чтении файла!');
         }
     };
-    
+
     reader.readAsText(file);
-    
+
     // Очистить input
     event.target.value = '';
 }
